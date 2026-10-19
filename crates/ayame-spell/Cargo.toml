@@ -41,6 +41,6 @@ ureq.workspace = true
 
 [dev-dependencies]
 assert_cmd = "=2.2.2"
-insta = "=1.48.0"
+insta = "=1.49.0"
 proptest.workspace = true
 tempfile = "=3.27.0"
