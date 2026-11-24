@@ -1043,6 +1043,41 @@ fn dictionary_commands_use_an_offline_fixture_registry() {
     assert!(project.root.join("dict/fixture.txt").is_file());
 }
 
+/// Sources the generated bash script and completes a subcommand through the
+/// dynamic wrapper, which must reach the function clap generated.
+#[cfg(target_os = "linux")]
+#[test]
+fn bash_completion_reaches_the_generated_function_through_the_wrapper() {
+    let project = Project::new();
+    let script = project.run(&["completions", "bash"]);
+    assert_code(&script, 0);
+    project.write("completion.bash", &script.stdout);
+
+    let probe = Command::new("bash")
+        .current_dir(&project.root)
+        .args([
+            "-c",
+            r#"source ./completion.bash
+COMP_WORDS=(ayame-spell chec)
+COMP_CWORD=1
+COMP_LINE="ayame-spell chec"
+COMP_POINT=${#COMP_LINE}
+_ayame_spell_dynamic_wrapper ayame-spell chec ayame-spell
+printf '%s' "${COMPREPLY[*]}""#,
+        ])
+        .output();
+    let Ok(probe) = probe else {
+        eprintln!("bash is not installed; skipping");
+        return;
+    };
+    assert!(
+        probe.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&probe.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&probe.stdout), "check");
+}
+
 #[test]
 fn init_config_and_completions_subcommands_work() {
     let project = Project::new();
@@ -1058,7 +1093,6 @@ fn init_config_and_completions_subcommands_work() {
     let completions = project.run(&["completions", "bash"]);
     assert_code(&completions, 0);
     let completions = String::from_utf8_lossy(&completions.stdout);
-    assert!(completions.contains("_ayame-spell"));
     assert!(completions.contains("kind=\"dict-add\""));
     assert!(completions.contains("ayame-spell __complete \"$kind\""));
 
