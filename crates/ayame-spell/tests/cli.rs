@@ -1074,6 +1074,43 @@ fn init_config_and_completions_subcommands_work() {
 }
 
 #[test]
+fn import_cspell_reads_yaml_configuration_and_rejects_duplicate_keys() {
+    let project = Project::new();
+    project.write(
+        "cspell.config.yaml",
+        r#"
+        version: "0.2"
+        words:
+          - AyameProduct
+          - 'quoted word'
+        ignoreWords: [brandtoken]
+        ignorePaths:
+          - generated/**
+        dictionaries: [typescript, private-team]
+        language: en
+        "#,
+    );
+    let imported = project.run(&["import", "cspell", "cspell.config.yaml"]);
+    assert_code(&imported, 0);
+    let stderr = String::from_utf8_lossy(&imported.stderr);
+    assert!(stderr.contains("private-team"));
+    assert!(stderr.contains("language"));
+    let config = fs::read_to_string(project.root.join("ayame-spell.toml")).unwrap();
+    assert!(config.contains("generated/**"));
+    assert!(config.contains("brandtoken"));
+    assert!(config.contains("registry:typescript-node"));
+    assert_eq!(
+        fs::read_to_string(project.root.join("ayame-words.txt")).unwrap(),
+        "AyameProduct\nquoted word\n"
+    );
+
+    project.write("duplicate.yaml", "words: [first]\nwords: [second]\n");
+    let duplicate = project.run(&["import", "cspell", "duplicate.yaml", "--dry-run"]);
+    assert_code(&duplicate, 2);
+    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("duplicate.yaml"));
+}
+
+#[test]
 fn import_commands_migrate_cspell_typos_and_prh_without_silent_loss() {
     let project = Project::new();
     project.write(
