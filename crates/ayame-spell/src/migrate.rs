@@ -8,6 +8,7 @@ use clap::Subcommand;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, Item, Table};
+use yaml_rust2::{Yaml, YamlLoader};
 
 #[derive(Subcommand)]
 pub enum ImportCmd {
@@ -74,9 +75,8 @@ fn import_cspell(path: Option<&Path>, dry_run: bool) -> anyhow::Result<i32> {
         path.extension().and_then(|extension| extension.to_str()),
         Some("yaml" | "yml")
     ) {
-        let yaml: serde_yaml::Value = serde_yaml::from_str(&text)
-            .with_context(|| format!("cannot parse {}", path.display()))?;
-        serde_json::to_value(yaml)?
+        let yaml = parse_yaml(&text).with_context(|| format!("cannot parse {}", path.display()))?;
+        yaml_to_json(&yaml).with_context(|| format!("cannot convert {}", path.display()))?
     } else {
         serde_json::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))?
     };
@@ -233,42 +233,40 @@ struct PrhOutputRule {
 fn import_prh(path: &Path, output: &Path, dry_run: bool) -> anyhow::Result<i32> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
-    let value: serde_yaml::Value =
-        serde_yaml::from_str(&text).with_context(|| format!("cannot parse {}", path.display()))?;
-    let rules = value
-        .get("rules")
-        .and_then(serde_yaml::Value::as_sequence)
+    let value = parse_yaml(&text).with_context(|| format!("cannot parse {}", path.display()))?;
+    let rules = yaml_get(&value, "rules")
+        .and_then(Yaml::as_vec)
         .context("prh file has no `rules` sequence")?;
     let mut translated = Vec::new();
     let mut untranslated = Vec::new();
-    if let Some(mapping) = value.as_mapping() {
+    if let Some(mapping) = value.as_hash() {
         for key in mapping
             .keys()
-            .filter_map(serde_yaml::Value::as_str)
+            .filter_map(Yaml::as_str)
             .filter(|key| !matches!(*key, "version" | "rules"))
         {
             untranslated.push(format!("top-level prh key `{key}` is not translated"));
         }
     }
     for (index, rule) in rules.iter().enumerate() {
-        if let Some(mapping) = rule.as_mapping() {
+        if let Some(mapping) = rule.as_hash() {
             for key in mapping
                 .keys()
-                .filter_map(serde_yaml::Value::as_str)
+                .filter_map(Yaml::as_str)
                 .filter(|key| !matches!(*key, "expected" | "pattern" | "patterns"))
             {
                 untranslated.push(format!("rule {} key `{key}` is not translated", index + 1));
             }
         }
-        let expected = rule.get("expected").and_then(serde_yaml::Value::as_str);
-        let patterns = rule.get("patterns").or_else(|| rule.get("pattern"));
+        let expected = yaml_get(rule, "expected").and_then(Yaml::as_str);
+        let patterns = yaml_get(rule, "patterns").or_else(|| yaml_get(rule, "pattern"));
         let Some(expected) = expected else {
             untranslated.push(format!("rule {} has no string `expected`", index + 1));
             continue;
         };
         let patterns: Vec<&str> = match patterns {
-            Some(serde_yaml::Value::String(pattern)) => vec![pattern],
-            Some(serde_yaml::Value::Sequence(patterns)) => {
+            Some(Yaml::String(pattern)) => vec![pattern],
+            Some(Yaml::Array(patterns)) => {
                 let mut strings = Vec::new();
                 for (pattern_index, pattern) in patterns.iter().enumerate() {
                     if let Some(pattern) = pattern.as_str() {
@@ -500,6 +498,60 @@ fn finish_import(
     Ok(0)
 }
 
+/// Parses a single YAML document; an empty file is `null`.
+///
+/// Duplicate mapping keys are an error rather than a silent last-one-wins, so
+/// an import never drops an earlier entry without saying so.
+fn parse_yaml(text: &str) -> anyhow::Result<Yaml> {
+    let mut documents = YamlLoader::load_from_str(text)?;
+    match documents.len() {
+        0 => Ok(Yaml::Null),
+        1 => Ok(documents.remove(0)),
+        count => anyhow::bail!("expected one YAML document, found {count}"),
+    }
+}
+
+/// Looks up `key` in a YAML mapping; `None` if `node` is not a mapping.
+fn yaml_get<'a>(node: &'a Yaml, key: &str) -> Option<&'a Yaml> {
+    node.as_hash()?.get(&Yaml::String(key.to_owned()))
+}
+
+/// Converts a YAML tree to JSON, stringifying scalar mapping keys the way
+/// JSON requires. Anchors that did not resolve are rejected. Recursion is
+/// bounded because the YAML parser already refuses deeply nested input.
+fn yaml_to_json(node: &Yaml) -> anyhow::Result<serde_json::Value> {
+    use serde_json::Value;
+
+    Ok(match node {
+        Yaml::Null => Value::Null,
+        Yaml::Boolean(value) => Value::Bool(*value),
+        Yaml::Integer(value) => Value::from(*value),
+        // Non-finite floats become `null`, as `serde_json` serializes them.
+        Yaml::Real(_) => node.as_f64().map_or(Value::Null, Value::from),
+        Yaml::String(value) => Value::String(value.clone()),
+        Yaml::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(yaml_to_json)
+                .collect::<anyhow::Result<_>>()?,
+        ),
+        Yaml::Hash(entries) => {
+            let mut object = serde_json::Map::new();
+            for (key, value) in entries {
+                let key = match key {
+                    Yaml::String(key) | Yaml::Real(key) => key.clone(),
+                    Yaml::Integer(key) => key.to_string(),
+                    Yaml::Boolean(key) => key.to_string(),
+                    _ => anyhow::bail!("mapping keys must be strings or numbers"),
+                };
+                object.insert(key, yaml_to_json(value)?);
+            }
+            Value::Object(object)
+        }
+        Yaml::Alias(_) | Yaml::BadValue => anyhow::bail!("unsupported YAML node"),
+    })
+}
+
 fn unsupported_json_keys(value: &serde_json::Value, supported: &[&str]) -> Vec<String> {
     value
         .as_object()
@@ -530,6 +582,47 @@ mod tests {
         assert_eq!(cspell_dictionary("typescript"), Some("typescript-node"));
         assert_eq!(cspell_dictionary("golang"), Some("go"));
         assert_eq!(cspell_dictionary("private-team"), None);
+    }
+
+    #[test]
+    fn yaml_documents_convert_to_json_with_anchors_resolved() {
+        let yaml = parse_yaml(
+            "words: &w [alpha, beta]\nignoreWords: *w\n1: one\ntrue: yes\nratio: .inf\nnothing: ~\n",
+        )
+        .unwrap();
+        let json = yaml_to_json(&yaml).unwrap();
+        assert_eq!(json["words"], serde_json::json!(["alpha", "beta"]));
+        assert_eq!(json["ignoreWords"], json["words"]);
+        assert_eq!(json["1"], "one");
+        assert_eq!(json["true"], "yes");
+        assert!(json["ratio"].is_null());
+        assert!(json["nothing"].is_null());
+    }
+
+    #[test]
+    fn yaml_input_that_would_lose_data_is_rejected() {
+        assert!(
+            parse_yaml("words: [a]\nwords: [b]\n").is_err(),
+            "a duplicated key must not silently keep only the last value"
+        );
+        assert!(parse_yaml("words: [a]\n---\nwords: [b]\n").is_err());
+        assert!(parse_yaml("words: [a\n").is_err());
+        assert!(parse_yaml("words: *missing\n").is_err());
+        assert!(yaml_to_json(&parse_yaml("? [a, b]\n: c\n").unwrap()).is_err());
+        assert!(parse_yaml(&"[".repeat(100_000)).is_err());
+    }
+
+    #[test]
+    fn an_empty_yaml_file_is_null() {
+        assert!(matches!(parse_yaml("").unwrap(), Yaml::Null));
+    }
+
+    #[test]
+    fn yaml_get_reads_mappings_only() {
+        let yaml = parse_yaml("rules:\n  - expected: a\n").unwrap();
+        assert!(yaml_get(&yaml, "rules").is_some_and(|rules| rules.as_vec().is_some()));
+        assert!(yaml_get(&yaml, "missing").is_none());
+        assert!(yaml_get(&yaml["rules"], "expected").is_none());
     }
 
     #[test]

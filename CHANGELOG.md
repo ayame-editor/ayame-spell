@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `import cspell` and `import prh` now parse YAML with `yaml-rust2` instead of
+  the deprecated `serde_yaml`, which dropped the unmaintained `unsafe-libyaml`
+  (RUSTSEC-2024-0449) from the build. Duplicate keys and multi-document files
+  are still rejected; only the wording of YAML syntax errors differs.
+
 ## [0.5.0] - 2026-08-07
 
 ### Added
