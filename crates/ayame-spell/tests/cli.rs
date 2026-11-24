@@ -1058,11 +1058,11 @@ fn bash_completion_reaches_the_generated_function_through_the_wrapper() {
         .args([
             "-c",
             r#"source ./completion.bash
-COMP_WORDS=(ayame-spell chec)
+COMP_WORDS=(ayame-spell che)
 COMP_CWORD=1
-COMP_LINE="ayame-spell chec"
+COMP_LINE="ayame-spell che"
 COMP_POINT=${#COMP_LINE}
-_ayame_spell_dynamic_wrapper ayame-spell chec ayame-spell
+_ayame_spell_dynamic_wrapper ayame-spell che ayame-spell
 printf '%s' "${COMPREPLY[*]}""#,
         ])
         .output();
