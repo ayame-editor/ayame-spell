@@ -552,14 +552,35 @@ fn completion_script(shell: clap_complete::Shell) -> anyhow::Result<Vec<u8>> {
         output = add_elvish_value_completions(script)?.into_bytes();
     }
 
-    output = add_dynamic_completion_hooks(shell, output);
+    output = add_dynamic_completion_hooks(shell, output)?;
     Ok(output)
 }
 
-fn add_dynamic_completion_hooks(shell: clap_complete::Shell, mut output: Vec<u8>) -> Vec<u8> {
+/// The function `clap_complete` registers for the binary with `complete -F`.
+///
+/// Its spelling of the hyphen in `ayame-spell` has changed between releases
+/// (`_ayame-spell`, then `_ayame__spell`), so the dynamic wrapper reads the
+/// name back instead of hard-coding the one it was written against.
+fn generated_bash_function(script: &str) -> anyhow::Result<&str> {
+    script
+        .lines()
+        .find_map(|line| {
+            line.trim_start()
+                .strip_prefix("complete -F ")?
+                .split_whitespace()
+                .next()
+        })
+        .context("clap_complete's bash output does not register a completion function")
+}
+
+fn add_dynamic_completion_hooks(
+    shell: clap_complete::Shell,
+    mut output: Vec<u8>,
+) -> anyhow::Result<Vec<u8>> {
+    let bash_hook;
     let hook = match shell {
         clap_complete::Shell::Bash => {
-            r#"
+            bash_hook = r#"
 # ayame-spell dynamic completion (cache-only; never performs network I/O).
 _ayame_spell_dynamic_wrapper() {
     local cur="${COMP_WORDS[COMP_CWORD]}" kind=""
@@ -577,10 +598,15 @@ _ayame_spell_dynamic_wrapper() {
         mapfile -t COMPREPLY < <(command ayame-spell __complete "$kind" "$cur")
         return
     fi
-    _ayame-spell "$@"
+    @GENERATED@ "$@"
 }
 complete -o bashdefault -o default -F _ayame_spell_dynamic_wrapper ayame-spell
 "#
+            .replace(
+                "@GENERATED@",
+                generated_bash_function(std::str::from_utf8(&output)?)?,
+            );
+            bash_hook.as_str()
         }
         clap_complete::Shell::Zsh => {
             r#"
@@ -617,7 +643,7 @@ complete -c ayame-spell -n '__fish_seen_subcommand_from words; and __fish_seen_s
         _ => "",
     };
     output.extend_from_slice(hook.as_bytes());
-    output
+    Ok(output)
 }
 
 fn add_powershell_value_completions(script: String) -> anyhow::Result<String> {
@@ -966,6 +992,21 @@ mod tests {
                 "{shell} completion output should use the cache-only provider"
             );
         }
+    }
+
+    #[test]
+    fn bash_wrapper_delegates_to_the_function_clap_generated() {
+        let script =
+            String::from_utf8(completion_script(clap_complete::Shell::Bash).unwrap()).unwrap();
+        let function = generated_bash_function(&script).unwrap();
+        assert!(
+            script.starts_with(&format!("{function}() {{\n")),
+            "{function} must be defined by the generated script"
+        );
+        assert!(
+            script.contains(&format!("\n    {function} \"$@\"\n}}\n")),
+            "the dynamic wrapper must call {function}"
+        );
     }
 
     #[test]

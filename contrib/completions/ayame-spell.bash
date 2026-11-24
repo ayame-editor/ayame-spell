@@ -1,4 +1,4 @@
-_ayame-spell() {
+_ayame__spell() {
     local i cur prev opts cmd
     COMPREPLY=()
     if [[ "${BASH_VERSINFO[0]}" -ge 4 ]]; then
@@ -1525,9 +1525,9 @@ _ayame-spell() {
 }
 
 if [[ "${BASH_VERSINFO[0]}" -eq 4 && "${BASH_VERSINFO[1]}" -ge 4 || "${BASH_VERSINFO[0]}" -gt 4 ]]; then
-    complete -F _ayame-spell -o nosort -o bashdefault -o default ayame-spell
+    complete -F _ayame__spell -o nosort -o bashdefault -o default ayame-spell
 else
-    complete -F _ayame-spell -o bashdefault -o default ayame-spell
+    complete -F _ayame__spell -o bashdefault -o default ayame-spell
 fi
 
 # ayame-spell dynamic completion (cache-only; never performs network I/O).
@@ -1547,6 +1547,6 @@ _ayame_spell_dynamic_wrapper() {
         mapfile -t COMPREPLY < <(command ayame-spell __complete "$kind" "$cur")
         return
     fi
-    _ayame-spell "$@"
+    _ayame__spell "$@"
 }
 complete -o bashdefault -o default -F _ayame_spell_dynamic_wrapper ayame-spell

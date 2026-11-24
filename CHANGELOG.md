@@ -13,6 +13,17 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the deprecated `serde_yaml`, which dropped the unmaintained `unsafe-libyaml`
   (RUSTSEC-2024-0449) from the build. Duplicate keys and multi-document files
   are still rejected; only the wording of YAML syntax errors differs.
+- Refreshed Rust dependencies, including `clap` 4.6.9, `clap_complete` 4.6.12,
+  `dirs` 6 to 7, `globset`, `ignore`, `proptest`, and `insta`. `typos-dict`
+  stays at 0.14.0: 0.14.1 and later declare `rust-version = "1.95"`, above the
+  supported 1.91, so taking them is a decision to raise the MSRV.
+
+### Fixed
+
+- Bash completion works with `clap_complete` 4.6.12, which renames the
+  generated function from `_ayame-spell` to `_ayame__spell`. The dynamic
+  wrapper now calls whatever function the generated script registers instead
+  of a hard-coded name, so subcommands and flags keep completing.
 
 ## [0.5.0] - 2026-08-07
 
