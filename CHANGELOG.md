@@ -13,10 +13,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the deprecated `serde_yaml`, which dropped the unmaintained `unsafe-libyaml`
   (RUSTSEC-2024-0449) from the build. Duplicate keys and multi-document files
   are still rejected; only the wording of YAML syntax errors differs.
+- Raised the minimum supported Rust version from 1.91 to 1.95, which
+  `typos-dict` 0.14.1 and later require. Building from source, `cargo install`
+  and the container build need Rust 1.95 or newer. Prebuilt binaries are not
+  affected.
+- Updated the typo dictionary (`typos-dict` 0.14.0 to 0.14.5): 363 misspellings
+  added, and 3 entries that flagged valid words removed (`bimap`, `causalities`,
+  `extraversion`).
 - Refreshed Rust dependencies, including `clap` 4.6.9, `clap_complete` 4.6.12,
-  `dirs` 6 to 7, `globset`, `ignore`, `proptest`, and `insta`. `typos-dict`
-  stays at 0.14.0: 0.14.1 and later declare `rust-version = "1.95"`, above the
-  supported 1.91, so taking them is a decision to raise the MSRV.
+  `dirs` 6 to 7, `globset`, `ignore`, `proptest`, and `insta`.
 
 ### Fixed
 
