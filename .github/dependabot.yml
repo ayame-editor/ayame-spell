@@ -41,6 +41,11 @@ updates:
       # drop this once that lands.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # The typings follow `engines.vscode` in package.json: they describe the
+      # oldest VS Code the extension supports, and `vsce package` rejects
+      # typings newer than that. Raise both together, by hand, when the
+      # extension needs a newer API.
+      - dependency-name: "@types/vscode"
 
   - package-ecosystem: github-actions
     directory: /
